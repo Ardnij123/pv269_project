@@ -22,7 +22,8 @@ Options:
 -x            assume the buffered subtelomeric sequence already extracted
               also needs the chromosome.sizes file
               this helps speedup subsequent reruns significantly
-
+-d            delete temp files after run
+              default:
 
 Dependences:
 faSize  conda   bioconda::ucsc-fasize
@@ -37,6 +38,7 @@ chrom_count=46
 temp_dir="temp"
 output_file="output.fa"
 extract_subtelomere="true"
+delete_temp=""
 
 if [ $# -eq 0 ]; then
     echo "$HELP"
@@ -56,7 +58,7 @@ shift 1
 
 scriptdir=$(dirname $0)
 
-while getopts "n:b:c:t:o:x" o; do
+while getopts "n:b:c:t:o:xd" o; do
     case $o in
         n)
             subtelo_len=$OPTARG
@@ -75,6 +77,9 @@ while getopts "n:b:c:t:o:x" o; do
             ;;
         x)
             extract_subtelomere=""
+            ;;
+        d)
+            delete_temp="True"
             ;;
         *)
             echo "Unrecognized parameter $o, priniting help"
@@ -130,3 +135,7 @@ seqkit concat -f \
         seqkit seq -rp -t"dna" -v) > $temp_dir/subtelo_cropped_t2c.fa 2> /dev/null
 
 cp $temp_dir/subtelo_cropped_t2c.fa $output_file
+
+if [ -n "$delete_temp" ]; then
+    rm -rf $temp_dir
+fi
