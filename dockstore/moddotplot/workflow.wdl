@@ -63,7 +63,7 @@ task grid_output {
 
   command <<<
     sequences=$(\
-        grep ">" ~{fasta_file} --no-filename |
+        grep ">" ~{fasta_file} |
         sed 's/^.//' |
         sed 's/chr//' | sed 's/^X/9999X/' | sed 's/^Y/9999Y/'|
         sort -n |
