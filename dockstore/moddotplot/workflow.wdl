@@ -73,7 +73,7 @@ task grid_output {
     )
 
     echo "$sequences" | while read seq; do
-        convert -append `echo "$sequences" | while read seq2; do echo "${seq}_${seq2}_COMPARE.png"; done` "row_$seq.png"
+        convert -append `echo "$sequences" | while read seq2; do grep "${seq}_${seq2}_COMPARE.png" ~{write_lines(plots)}; done` "row_$seq.png"
     done
 
     convert +append `echo "$sequences" | while read seq; do echo "row_$seq.png"; done | tac` "grid.png"
