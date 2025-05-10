@@ -6,14 +6,14 @@ task plot_compare {
   input {
     Array[File] fasta_files
     Int resolution = 100
-    String options = ""
+    String mdp_options = ""
     Boolean only_compare = true
   }
 
   String comp = if only_compare then "--compare-only" else "--compare"
 
   command <<<
-    moddotplot static -f ~{sep=' ' fasta_files} --compare-only ~{options} -r ~{resolution} -o "similiarity-plots" ~{comp}
+    moddotplot static -f ~{sep=' ' fasta_files} --compare-only ~{mdp_options} -r ~{resolution} -o "similiarity-plots" ~{comp}
   >>>
 
   runtime {
@@ -96,6 +96,7 @@ workflow moddotplot_cross {
   input {
     File fasta_file
     Boolean create_grid = true
+    String mdp_options = ""
   }
 
   call split_fasta {
@@ -109,7 +110,7 @@ workflow moddotplot_cross {
       input:
       fasta_files = [ seqs.left, seqs.right ],
       resolution = 100,
-      options = "--no-bedpe",
+      mdp_options = "~{mdp_options} --no-bedpe",
       only_compare = true
     }
   }
