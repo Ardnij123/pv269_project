@@ -33,3 +33,11 @@ Sequences on the end of the chromosomes but not telomeric sequences (TTAGGG)
 - some parent vs child data for mutations?
 
 - HPRC
+
+## Progress
+
+### Weird things
+
+Chr2 Maternal start, ca 200000-208000: repeats of `AGGAGG`
+
+Repeats of up to (or more?) 300kb
