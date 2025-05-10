@@ -45,6 +45,11 @@ if [ $# -eq 0 ]; then
     exit
 fi
 
+if [ $1 == "-h" ]; then
+    echo "$HELP"
+    exit
+fi
+
 set -euo pipefail
 
 fasta_file=$1
