@@ -1,5 +1,7 @@
 version 1.0
 
+
+
 task plot_compare {
   input {
     Array[File] fasta_files
@@ -27,6 +29,8 @@ task plot_compare {
   }
 }
 
+
+
 task split_fasta {
   input {
     File fasta_file
@@ -49,9 +53,49 @@ task split_fasta {
   }
 }
 
+
+
+task grid_output {
+  input {
+    File fasta_file
+    Array[File] plots
+  }
+
+  command <<<
+    sequences=$(\
+        grep ">" ~{fasta_file} --no-filename |
+        sed 's/^.//' |
+        sed 's/chr//' | sed 's/^X/9999X/' | sed 's/^Y/9999Y/'|
+        sort -n |
+        sed 's/^9999//' | sed 's/^/chr/'
+    )
+
+    echo "$sequences" | while read seq; do
+        convert -append `echo "$sequences" | while read seq2; do echo "${seq}_${seq2}_COMPARE.png"; done` "row_$seq.png"
+    done
+
+    convert +append `echo "$sequences" | while read seq; do echo "row_$seq.png"; done | tac` "grid.png"
+  >>>
+
+  runtime {
+    docker: "islandora/imagemagick:mono-repo"
+    disks: "local-disk 20 SSD"
+    cpu: 4
+    memory: "8 GB"
+    preemptible: 1
+  }
+
+  output {
+    File grid_file = "grid.png"
+  }
+}
+
+
+
 workflow moddotplot_cross {
   input {
     File fasta_file
+    Boolean create_grid = true
   }
 
   call split_fasta {
@@ -70,7 +114,16 @@ workflow moddotplot_cross {
     }
   }
 
+  if (create_grid) {
+    call grid_output {
+      input:
+      fasta_file = fasta_file,
+      plots = flatten(plot_compare.sim_files)
+    }
+  }
+
   output {
     Array[File] sim_plots = flatten(plot_compare.sim_files)
+    File? grid_file = grid_output.grid_file
   }
 }
