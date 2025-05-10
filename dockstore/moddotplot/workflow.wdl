@@ -62,8 +62,6 @@ task grid_output {
   }
 
   command <<<
-    echo "~{sep=' ' plots}"
-
     sequences=$(\
         grep ">" ~{fasta_file} |
         sed 's/^.//' |
