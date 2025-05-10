@@ -16,7 +16,7 @@ task plot_compare {
 
   runtime {
     docker: "jindmen/moddotplot:latest"
-    disks: "local-disk 20SSD"
+    disks: "local-disk 20 SSD"
     cpu: 2
     memory: "2GB"
     preemptible: 1
