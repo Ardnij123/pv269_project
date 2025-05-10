@@ -78,7 +78,7 @@ task grid_output {
   >>>
 
   runtime {
-    docker: "islandora/imagemagick:mono-repo"
+    docker: "dpokidov/imagemagick:latest-bookworm"
     disks: "local-disk 20 SSD"
     cpu: 4
     memory: "8 GB"
