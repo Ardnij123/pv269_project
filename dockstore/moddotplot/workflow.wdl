@@ -26,6 +26,7 @@ task plot_compare {
 
   output {
     Array[File] sim_files = glob("similiarity-plots/*")
+    File? comp_file = "similiarity-plots/*_COMPARE.png"
   }
 }
 
@@ -74,13 +75,14 @@ task grid_output {
     mkdir "temp-plots"
 
     echo "$sequences" | while read seq; do
-      while read seq2; do
+      echo "$sequences" | while read seq2; do
         file="`grep "${seq}_${seq2}_COMPARE.png" ~{write_lines(plots)}`"
         target="temp-plots/${seq}_${seq2}.png"
         if [ ! "$file" ]; then
           convert -size "~{resolution}x~{resolution}" xc:transparent "$target"
         else
           ln -s "$file" "$target"
+        fi
       done
     done
 
@@ -134,7 +136,7 @@ workflow moddotplot_cross {
     call grid_output {
       input:
       fasta_file = fasta_file,
-      plots = flatten(plot_compare.sim_files),
+      plots = plot_compare.comp_file,
       resolution = resolution * 5
     }
   }
