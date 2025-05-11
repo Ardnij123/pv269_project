@@ -136,7 +136,7 @@ workflow moddotplot_cross {
     call grid_output {
       input:
       fasta_file = fasta_file,
-      plots = plot_compare.comp_file,
+      plots = select_all(plot_compare.comp_file),
       resolution = resolution * 5
     }
   }
