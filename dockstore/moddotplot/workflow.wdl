@@ -79,7 +79,7 @@ task grid_output {
         file="`grep "${seq}_${seq2}_COMPARE.png" ~{write_lines(plots)}`"
         target="temp-plots/${seq}_${seq2}.png"
         if [ ! "$file" ]; then
-          convert -size "~{resolution}x~{resolution}" xc:transparent "$target"
+          magick -size "~{resolution}x~{resolution}" xc:transparent "$target"
         else
           ln -s "$file" "$target"
         fi
@@ -87,7 +87,7 @@ task grid_output {
     done
 
     echo "$sequences" | while read seq; do
-      convert -append `echo "$sequences" | while read seq2; echo "temp-plots/${seq}_${seq2}.png"; done` "row_$seq.png"
+      convert -append `echo "$sequences" | while read seq2; do echo "temp-plots/${seq}_${seq2}.png"; done` "row_$seq.png"
     done
 
     convert +append `echo "$sequences" | while read seq; do echo "row_$seq.png"; done | tac` "grid.png"
