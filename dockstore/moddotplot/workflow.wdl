@@ -26,7 +26,7 @@ task plot_compare {
 
   output {
     Array[File] sim_files = glob("similiarity-plots/*")
-    File? comp_file = "similiarity-plots/*_COMPARE.png"
+    Array[File] comp_files = glob("similiarity-plots/*_COMPARE.png")
   }
 }
 
@@ -136,7 +136,7 @@ workflow moddotplot_cross {
     call grid_output {
       input:
       fasta_file = fasta_file,
-      plots = select_all(plot_compare.comp_file),
+      plots = flatten(plot_compare.comp_files),
       resolution = resolution * 5
     }
   }
