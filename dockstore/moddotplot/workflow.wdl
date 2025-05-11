@@ -13,7 +13,7 @@ task plot_compare {
   String comp = if only_compare then "--compare-only" else "--compare"
 
   command <<<
-    moddotplot static -f ~{sep=' ' fasta_files} --compare-only ~{mdp_options} -r ~{resolution} -o "similiarity-plots" ~{comp}
+  moddotplot static -f ~{sep=' ' fasta_files} --compare-only ~{mdp_options} -r ~{resolution} -o "similiarity-plots" ~{comp} --width 1 --dpi ~{resolution * 5}
   >>>
 
   runtime {
@@ -59,19 +59,33 @@ task grid_output {
   input {
     File fasta_file
     Array[File] plots
+    Int resolution = 500
   }
 
   command <<<
     sequences=$(\
-        grep ">" ~{fasta_file} |
-        sed 's/^.//' |
-        sed 's/chr//' | sed 's/^X/9999X/' | sed 's/^Y/9999Y/'|
-        sort -n |
-        sed 's/^9999//' | sed 's/^/chr/'
+      grep ">" ~{fasta_file} |
+      sed 's/^.//' |
+      sed 's/chr//' | sed 's/^X/9999X/' | sed 's/^Y/9999Y/'|
+      sort -n |
+      sed 's/^9999//' | sed 's/^/chr/'
     )
 
+    mkdir "temp-plots"
+
     echo "$sequences" | while read seq; do
-        convert -append `echo "$sequences" | while read seq2; do grep "${seq}_${seq2}_COMPARE.png" ~{write_lines(plots)}; done` "row_$seq.png"
+      while read seq2; do
+        file="`grep "${seq}_${seq2}_COMPARE.png" ~{write_lines(plots)}`"
+        target="temp-plots/${seq}_${seq2}.png"
+        if [ ! "$file" ]; then
+          convert -size "~{resolution}x~{resolution}" xc:transparent "$target"
+        else
+          ln -s "$file" "$target"
+      done
+    done
+
+    echo "$sequences" | while read seq; do
+      convert -append `echo "$sequences" | while read seq2; echo "temp-plots/${seq}_${seq2}.png"; done` "row_$seq.png"
     done
 
     convert +append `echo "$sequences" | while read seq; do echo "row_$seq.png"; done | tac` "grid.png"
@@ -97,6 +111,7 @@ workflow moddotplot_cross {
     File fasta_file
     Boolean create_grid = true
     String mdp_options = ""
+    Int resolution = 100
   }
 
   call split_fasta {
@@ -109,7 +124,7 @@ workflow moddotplot_cross {
     call plot_compare {
       input:
       fasta_files = [ seqs.left, seqs.right ],
-      resolution = 100,
+      resolution = resolution,
       mdp_options = "~{mdp_options} --no-bedpe",
       only_compare = true
     }
@@ -119,7 +134,8 @@ workflow moddotplot_cross {
     call grid_output {
       input:
       fasta_file = fasta_file,
-      plots = flatten(plot_compare.sim_files)
+      plots = flatten(plot_compare.sim_files),
+      resolution = resolution * 5
     }
   }
 
