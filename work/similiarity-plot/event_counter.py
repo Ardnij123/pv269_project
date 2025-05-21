@@ -29,8 +29,6 @@ parser.add_argument('-w', '--window-size', type=int, help=
 '''Generate windows of size <window-size>''')
 parser.add_argument('-s', '--seq-names', type=str, help=
 '''Use lines in file <seq-names> instead of numbers as labels''')
-parser.add_argument('-i', '--interactive', default=False, action='store_const', const=True, help=
-'''Run as interactive application. Allows for adding and removing subsequences on the run. Not implemented yet.''')
 
 args = parser.parse_args()
 
@@ -121,15 +119,22 @@ def replot(indices):
 
 
 # Interactive matplotlib plot
+MAX_ROWS = 20
+
 root = tk.Tk()
 
+col = 0
+row = 0
 varray = dict([(label, tk.IntVar(root, value=1)) for label in labels])
 for label in labels:
     checkbox = ttk.Checkbutton(root, text=label, variable=varray[label])
-    checkbox.pack()
-submit = ttk.Button(root, text="Plot", command=lambda: replot(varray))
-submit.pack()
+    checkbox.grid(column=col, row=row)
+    row += 1
+    if row >= MAX_ROWS:
+        row = 0
+        col += 1
 
-replot({ind: varray[ind] for ind in varray if ind != ">A_chr001_PATERNAL"})
+submit = ttk.Button(root, text="Plot", command=lambda: replot(varray))
+submit.grid(column=col, row=MAX_ROWS)
 
 root.mainloop()
