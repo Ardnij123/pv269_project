@@ -30,6 +30,10 @@ Sequences on the end of the chromosomes but not telomeric sequences (TTAGGG)
 
 ## Data
 
+- 1000 genomes project
 - some parent vs child data for mutations?
+    - HG002 vs HG003, HG004
+    - these have not great accuracy at ends
+- some data with both homologous chromosomes sequenced and in data
 
 - HPRC
