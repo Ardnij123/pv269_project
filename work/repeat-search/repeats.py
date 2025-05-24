@@ -3,6 +3,8 @@ import argparse
 import random
 from math import log, log1p
 from typing import Dict, Tuple
+from heapq import nlargest
+import itertools
 
 HELP="""
 This script provides a way of search for repeated sequence in fasta file.
@@ -329,6 +331,7 @@ def single_search(sequence, graph, MaxDrop=200, InsertionPenalty=3, GapPenalty=3
     position = offset
     chrom = ""
     flood = 0
+    batches = int(MaxDrop / GapPenalty) + 1
 
     values = [(-1, 0) for _ in range(len(graph))]
     next_values = [(-1, 0) for _ in range(len(graph))]
@@ -336,75 +339,62 @@ def single_search(sequence, graph, MaxDrop=200, InsertionPenalty=3, GapPenalty=3
     next_starts = [offset for _ in range(len(graph))]
     chrom, base = next(sequence)
     base = aamapper(base)
-    next_states = graph.bases[base]
+    next_states = [map(lambda x: (True, x), graph.bases[base])]
 
     try:
-        while next_states:
-            current_states, next_states = next_states, []
+        while any(next_states):
+            current_states, next_states = next_states, [[] for _ in range(batches)]
             values, next_values = next_values, values
             starts, next_starts = next_starts, starts
             position = position + 1
 
-            _flood = max(flood, 0, max_value - MaxDrop)
+            _flood = flood + max(0, max_value - MaxDrop)
 
-            """
-            print(f"Position {position}, next base {base}")
-            print(f"Max value {max_value}, flood {_flood}")
-            if len(current_states) < 10:
-                print("States:")
-                for state in current_states:
-                    print(f"{state} {values[state.idx]}: {[(idx, n[0], str(n[1])) for idx, n in enumerate(state.neighbors) if n is not None]}")
-            """
-            for state in current_states:
-                state_idx = state.idx
-                _, value = values[state_idx]
-                if value < _flood:
-                    continue
+            for batch in current_states:
+                for allow_insert, state in batch:
+                    state_idx = state.idx
+                    start, value = values[state_idx]
+                    if value < _flood:
+                        continue
 
-                if value <= 0:
-                    state_start = position - 1
-                else:
-                    state_start = starts[state_idx]
+                    if value <= 0:
+                        state_start = position - 1
+                    else:
+                        state_start = starts[state_idx]
 
-                # Insertion
-                if value - InsertionPenalty > _flood:
-                    insertion = (position, value - InsertionPenalty)
-                    if next_values[state_idx] < insertion:
-                        if next_values[state_idx] < (position, -1):
-                            next_states.append(state)
-                        next_values[state_idx] = insertion
-                        next_starts[state_idx] = state_start
+                    # Insertion
+                    if allow_insert and (new_value := value - InsertionPenalty) > _flood:
+                        insertion = (position, new_value)
+                        if next_values[state_idx] < insertion:
+                            next_states[int((max_value+flood - new_value)/GapPenalty)].append((True, state))
+                            next_values[state_idx] = insertion
+                            next_starts[state_idx] = state_start
 
-                # ( Gaps + ) Correct base
-                # Allow any number of gaps until either correct base or running out of MaxDrop
-                # This part also allows for addition of correct base
-                # _flood = max(_flood, max_value - MaxDrop)
-                value += GapPenalty
-                todo_states = {state}
-                while todo_states and (value := value - GapPenalty) >= _flood:
-                    current, todo_states = todo_states, set()
-                    for state in current:
-                        pos, prev_value = values[state.idx]
-                        if pos == position - 1 and prev_value > value:
-                            continue
-                        for nbase, increment, neigh in state._neighbors:
-                            if nbase == base:
-                                n_idx = neigh.idx
-                                new_value = value + increment
-                                correct = (position, new_value)
-                                if next_values[n_idx] < correct:
-                                    if next_values[n_idx] < (position, -1):
-                                        next_states.append(neigh)
-                                    next_values[n_idx] = correct
-                                    next_starts[n_idx] = state_start
-                                    if new_value - flood > max_value:
-                                        max_value = new_value - flood
-                                        min_position = state_start
-                                        max_position = position
-                            else:
-                                todo_states.add(neigh)
+                    # Gaps + Correct base
+                    gap_value = value - GapPenalty
+                    gapped = (position, gap_value)
+                    for nbase, increment, neigh in state._neighbors:
+                        n_idx = neigh.idx
+                        if nbase == base:
+                            # Correct
+                            new_value = value + increment
+                            correct = (position, new_value)
+                            if next_values[n_idx] < correct:
+                                if new_value - flood > max_value:
+                                    max_value = new_value - flood
+                                    min_position = state_start
+                                    max_position = position
+                                    _flood = flood + max(0, max_value - MaxDrop)
+                                if next_values[n_idx] < (position, -1):
+                                    next_states[int((max_value+flood - new_value)/GapPenalty)].append((True, neigh))
+                                next_values[n_idx] = correct
+                                next_starts[n_idx] = state_start
+                        else:
+                            # Gap
+                            if gapped > values[n_idx] and gap_value >= _flood:
+                                values[n_idx] = gapped
+                                current_states[int((max_value+flood - new_value)/GapPenalty)].append((False, neigh))
 
-            print(chrom, min_position, max_position, max_value, position)
             flood += BasePenalty
             chrom, base = next(sequence)
             base = aamapper(base)
@@ -451,6 +441,7 @@ graph = generate_graph(fasta, k_len)
 graph = scale_graph(graph, args.scaling)
 graph = prune_graph(graph, args.abs_threshold, args.rel_threshold)
 graph = Graph(graph)
+
 
 for chrom, start, end, value in repeats_search(
         fasta, graph,
