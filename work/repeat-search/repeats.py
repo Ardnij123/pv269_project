@@ -41,8 +41,6 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('fasta_file', help='Bedpe file with sequences to search through')
 parser.add_argument('-k', '--kmer_len', type=int, help='''Set length of k-meres''', default=20)
-#parser.add_argument('-n', '--n_tries', type=int, help='''Try searching for repeats n-times''')
-#parser.add_argument('-B', '--out_bed', type=str, help='''Generate annotation of hits as a bed file''')
 parser.add_argument('-t', '--abs-threshold', type=float, help='''Minimal number a k-mere has to be in the sequence to be considered to be searched for''', default=3)
 parser.add_argument('-T', '--rel-threshold', type=float, help='''Only kmeres that are more frequent than REL_THRESHOLD * max frequency after rescaling''', default=0)
 parser.add_argument('-S', '--scaling', type=str, help='''Add scaling of the frequences''', default='log1p', choices=rescale)
