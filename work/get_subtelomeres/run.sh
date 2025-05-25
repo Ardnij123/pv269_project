@@ -3,34 +3,39 @@
 HELP="
 Full pipeline to extract subtelomeres as FASTA file from assembly
 
-Usage: extract fasta-file [-n len] [-b buffer] [-c #chrom] [-t temp_dir] [-o file] [-x]
+Usage: extract [fasta-file, -x] [Options]
 
 Options:
--n len        extract subtelomeric sequence <len>-long
+-n len        Extract subtelomeric sequence <len>-long
               default: 500000
--b buffer     length of buffer for extraction
+-b buffer     Length of buffer for extraction
               should be longer than length of telomere
               setting shorter buffer will lead to errors
               default: 100000
--c #chrom     only use first #chrom number of sequences from fasta-file
+-c #chrom     Only use first #chrom number of sequences from fasta-file
               default: 46
--t temp_dir   directory for intermediate results
+-t temp_dir   Directory for intermediate results
               default: temp
--o file       where to put the output file
+-o file       Where to put the output file
               the directory of the file must exist
               default: output.fa
--x            assume the buffered subtelomeric sequence already extracted
+-x            Assume the buffered subtelomeric sequence already extracted
               also needs the chromosome.sizes file
               this helps speedup subsequent reruns significantly
 -d            delete temp files after run
               default:
+-f bedfile    Also extract subtelomeres from bed file
+              filename of the extracted feature file may be specified by option -B
+-B f_file     Extract features into file f_file
+              default: features.bed
+
 
 Dependences:
 faSize  conda   bioconda::ucsc-fasize
 seqkit  conda   seqkit
 seqtk   docker  staphb/seqtk
 bigBedToBed docker  bioconda::ucsc-bigbedtobed
-"
+" # TODO
 
 subtelo_len=500000
 subtelo_buffer=100000
@@ -39,13 +44,15 @@ temp_dir="temp"
 output_file="output.fa"
 extract_subtelomere="true"
 delete_temp=""
+bed_file=""
+subtelo_features="features.bed"
 
 if [ $# -eq 0 ]; then
     echo "$HELP"
     exit
 fi
 
-if [ $1 == "-h" ]; then
+if [ $1 == '-h' ] || [ $1 == '--help' ]; then
     echo "$HELP"
     exit
 fi
@@ -53,17 +60,19 @@ fi
 set -euo pipefail
 
 fasta_file=$1
-file=$1
-if [ "${file##*.}" == "gz" ]; then
-    file="zcat $file"
-else
-    file="cat $file"
+if [ ! "${fasta_file:0:1}" == "-" ]; then
+    file=$1
+    if [ "${file##*.}" == "gz" ]; then
+        file="zcat $file"
+    else
+        file="cat $file"
+    fi
+    shift 1
 fi
-shift 1
 
 scriptdir=$(dirname $0)
 
-while getopts "n:b:c:t:o:xd" o; do
+while getopts "n:b:c:t:o:xf:B:d" o; do
     case $o in
         n)
             subtelo_len=$OPTARG
@@ -86,6 +95,12 @@ while getopts "n:b:c:t:o:xd" o; do
         d)
             delete_temp="True"
             ;;
+        f)
+            bed_file=$OPTARG
+            ;;
+        B)
+            subtelo_features=$OPTARG
+            ;;
         *)
             echo "Unrecognized parameter $o, priniting help"
             echo -e "$HELP"
@@ -101,13 +116,11 @@ if [ $extract_subtelomere ]; then
     echo "Extracting chromosome sizes"
     # Extract chromosome sizes
     faSize -detailed <($file) > $temp_dir/chrom.sizes
-fi
 
-echo "Generating file for chromosome extraction"
-# Extract 500Kb + buffer as bed file
-./$scriptdir/subtelomeres_bed.sh $temp_dir/chrom.sizes -o $temp_dir/seq_ends.bed -n $(( $subtelo_len + $subtelo_buffer )) -c $chrom_count
+    echo "Generating file for chromosome extraction"
+    # Extract 500Kb + buffer as bed file
+    ./$scriptdir/subtelomeres_bed.sh $temp_dir/chrom.sizes -o $temp_dir/seq_ends.bed -n $(( $subtelo_len + $subtelo_buffer )) -c $chrom_count
 
-if [ $extract_subtelomere ]; then
     echo "Extracting sequences close to ends of chromosomes"
     # Seqkit subseq for sequence ends
     # rename to >chr1_MATERNAL_START, >chr12_PATERNAL_END, ...
@@ -138,6 +151,18 @@ seqkit concat -f \
     <(seqkit grep -nrp ".*_START" $temp_dir/subtelo_cropped.fa) \
     <(seqkit grep -nrp ".*_END" $temp_dir/subtelo_cropped.fa | \
         seqkit seq -rp -t"dna" -v) > $temp_dir/subtelo_cropped_t2c.fa 2> /dev/null
+
+# TODO: reverse direction of subtelo_cropped
+if [ $bed_file ]; then
+    echo "Extracting from bedfile sequence"
+    ./$scriptdir/bed_shifter.py \
+        <(./$scriptdir/bed_shifter.py \
+            <( bedtools intersect -a $bed_file -b $temp_dir/seq_ends.bed -wa ) \
+            $temp_dir/seq_ends.bed \
+        ) \
+        <(./$scriptdir/rotate_end.py $temp_dir/subtelo_cropped.bed ) \
+        > $subtelo_features
+fi
 
 cp $temp_dir/subtelo_cropped_t2c.fa $output_file
 
