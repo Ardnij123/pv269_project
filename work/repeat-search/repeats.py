@@ -321,7 +321,7 @@ MaxDrop, InsertionPenalty, GapPenalty, BasePenalty
 
     Set Value[Position][v] to maximum of:
         ( Value[Position-1][v] - InsertionPenalty )
-        ( Value[Position-1][v-1] - GapPenalty ) v-1 is node with edge comming to v
+        ( Value[Position][v-1] - GapPenalty ) v-1 is node with edge comming to v
         ( Value[Position-1][v-1] + weight of the transition edge ) if v-1 has correct transition
 
     Values[Position] := Values[Position] - BasePenalty
@@ -463,11 +463,11 @@ def repeats_search(fasta, graph, MinValue=200, MaxDrop=200, InsertionPenalty=3, 
                               offset=position,
                               exact_start=exact_start)
 
-        offset = reader.get_offset(chrom)
-        _start = start - offset
-        _end = end - offset
-
         if value > MinValue:
+            offset = reader.get_offset(chrom)
+            _start = start - offset
+            _end = end - offset
+
             last_report = end
             yield chrom, _start, _end, value
 

@@ -3,7 +3,7 @@
 HELP="
 Full pipeline to extract subtelomeres as FASTA file from assembly
 
-Usage: extract [fasta-file, -x] [Options]
+Usage: extract file.fa [Options]
 
 Options:
 -n len        Extract subtelomeric sequence <len>-long
@@ -34,7 +34,6 @@ Dependences:
 faSize  conda   bioconda::ucsc-fasize
 seqkit  conda   seqkit
 seqtk   docker  staphb/seqtk
-bigBedToBed docker  bioconda::ucsc-bigbedtobed
 " # TODO
 
 subtelo_len=500000
