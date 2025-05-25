@@ -91,7 +91,7 @@ merge_split.sh input.fa -o merged.fa
 moddotplot static -f merged.fa -o w5000 -w 5000 --no-plot --no-hist
 
 # Visualise the bedpe file
-event_counter.py w5000/merged.bedpe -w 550000 -s merged.fa.seqs
+event_counter.py w5000/merged.bedpe -s merged.fa.seqs
 
 # Select promissing sequences and plot in high res
 seqkit grep input.fa -r -p "chr1_" "chr4_" "chr7_" > group.fa
