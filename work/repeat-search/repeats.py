@@ -5,6 +5,7 @@ from math import log, log1p
 from typing import Dict, Tuple
 from heapq import nlargest
 import itertools
+from sys import stderr
 
 HELP="""
 This script provides a way of search for repeated sequence in fasta file.
@@ -39,23 +40,28 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument('fasta_file', help='Bedpe file with sequences to search through')
-parser.add_argument('-k', '--kmer_len', type=int, help='''Set length of k-meres''')
-parser.add_argument('-n', '--n_tries', type=int, help='''Try searching for repeats n-times''')
-parser.add_argument('-B', '--out_bed', type=str, help='''Generate annotation of hits as a bed file''')
-parser.add_argument('-t', '--abs-threshold', type=float, help='''Minimal number a k-mere has to be in the sequence to be considered to be searched for''', default=1)
+parser.add_argument('-k', '--kmer_len', type=int, help='''Set length of k-meres''', default=20)
+#parser.add_argument('-n', '--n_tries', type=int, help='''Try searching for repeats n-times''')
+#parser.add_argument('-B', '--out_bed', type=str, help='''Generate annotation of hits as a bed file''')
+parser.add_argument('-t', '--abs-threshold', type=float, help='''Minimal number a k-mere has to be in the sequence to be considered to be searched for''', default=3)
 parser.add_argument('-T', '--rel-threshold', type=float, help='''Only kmeres that are more frequent than REL_THRESHOLD * max frequency after rescaling''', default=0)
 parser.add_argument('-S', '--scaling', type=str, help='''Add scaling of the frequences''', default='log1p', choices=rescale)
 
 parser.add_argument('-m', '--max-drop', type=int, help='''Maximal drop in score to still count as one sequence''', default=200)
-parser.add_argument('-i', '--insert-pen', type=float, help='''Penalty for insertion''', default=3)
-parser.add_argument('-g', '--gap-pen', type=float, help='''Penalty for gap''', default=3)
-parser.add_argument('-b', '--base-pen', type=float, help='''Penalty that is added in each step''', default=1)
+parser.add_argument('-i', '--insert-pen', type=float, help='''Penalty for insertion''', default=10)
+parser.add_argument('-g', '--gap-pen', type=float, help='''Penalty for gap''', default=10)
+parser.add_argument('-b', '--base-pen', type=float, help='''Penalty that is added in each step''', default=2)
 parser.add_argument('-s', '--skip', type=int, help='''Skip first n bases of file''', default=0)
+parser.add_argument('-e', '--exact-match', type=int, help='''Speed up the search by looking for exact matches of defined length at start of repetition''', default=7)
 
 args = parser.parse_args()
 
 fasta = args.fasta_file
 k_len = args.kmer_len if args.kmer_len else 10
+
+
+def stderrprint(string):
+    print(string, file=stderr)
 
 
 class CharNotAllowed(Exception):
@@ -104,7 +110,9 @@ class base_reader:
         self.buffer = []
         self.offset = 0
         self.start = 0
+        self.seq_offset = 0
         self.reader = self.file_read()
+        self.seq_offsets = {}
 
     def __iter__(self):
         return self
@@ -124,6 +132,7 @@ class base_reader:
         for line in self.fa:
             if line[0] == '>':
                 self.seq_id = line[1:-1]
+                self.seq_offsets[self.seq_id] = self.start + self.offset
                 continue
 
             for char in line:
@@ -139,11 +148,17 @@ class base_reader:
 
     def reset(self, start):
         assert start >= self.start
-        self.buffer = self.buffer[(start-self.start):]
-        for _ in range(start - self.start):
-            next(self.reader)
+        if self.start + len(self.buffer) > start:
+            self.buffer = self.buffer[(start-self.start):]
+        else:
+            for _ in range(start - self.start - len(self.buffer)):
+                next(self.reader)
+            self.buffer = []
         self.start = start
-        offset = 0
+        self.offset = 0
+
+    def get_offset(self, sequence):
+        return self.seq_offsets[sequence]
 
 
 aamapping = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
@@ -154,18 +169,19 @@ def aamapper(aminoacid):
 
 class Node:
     def __init__(self, idx, kmere):
-        # TODO: try this and maybe replace nodes with list directly
         self.neighbors = [None, None, None, None]
         self._neighbors = []
         self.idx = idx
         self.kmere = kmere
 
+    """
     def __str__(self):
         return self.kmere
+    """
 
 
 class Graph:
-    def __init__(self, graph):
+    def __init__(self, graph, suffix=1):
         self.kmere_mapping = dict()
         self.nodes = []
         for idx, kmere in enumerate(graph):
@@ -176,6 +192,17 @@ class Graph:
         for kmere in graph:
             for aminoacid, value in graph[kmere].items():
                 self.assign(kmere, aminoacid, value)
+
+        self.by_suffix = []
+        self.by_suffix.append({"": self})
+        for suf_len in range(1, suffix+1):
+            _suffix = dict()
+            for suf, nodes in self.by_suffix[-1].items():
+                for base in allowed_chars:
+                    _suffix[base+suf] = []
+                for node in nodes:
+                    _suffix[node.kmere[-suf_len:]].append(node)
+            self.by_suffix.append(_suffix)
 
         self.bases = [[], [], [], []]
         for node in self.nodes:
@@ -193,7 +220,6 @@ class Graph:
             return
         self.kmere_mapping[kmere].neighbors[aa] = (value, self.kmere_mapping[other])
         self.kmere_mapping[kmere]._neighbors.append((aa, value, self.kmere_mapping[other]))
-        #print(f"Adding edge under base {aminoacid} from {kmere} to {other}")
 
     def __len__(self):
         return self.__length
@@ -203,7 +229,6 @@ class Graph:
 
 
 def generate_graph(fasta, k_len):
-    print("# Generating graph of k-meres")
     graph: Dict[Kmere, Dict[AA, int]] = {"": zeros.copy()}
 
     old_kmere = ""
@@ -220,7 +245,7 @@ def generate_graph(fasta, k_len):
 def scale_graph(graph, scaling="log1p"):
     scaling = rescale[scaling]
     for kmere in graph:
-        graph[kmere] = {base: scaling(count) for base, count in graph[kmere].items()}
+        graph[kmere] = {base: scaling(count) for base, count in graph[kmere].items() if count > 0}
     return graph
 
 
@@ -322,33 +347,47 @@ MaxDrop, InsertionPenalty, GapPenalty, BasePenalty
 
 Return MinPosition, MaxPosition
 """
-@profile
 def single_search(sequence, graph, MaxDrop=200, InsertionPenalty=3, GapPenalty=3, BasePenalty=1,
-                  offset=0):
+                  offset=0, exact_start=3):
     max_value = -1
-    max_position = 0
-    min_position = 0
+    max_position = offset+exact_start
+    min_position = offset
     position = offset
     chrom = ""
     flood = 0
     batches = int(MaxDrop / GapPenalty) + 1
 
-    values = [(-1, 0) for _ in range(len(graph))]
-    next_values = [(-1, 0) for _ in range(len(graph))]
-    starts = [offset for _ in range(len(graph))]
-    next_starts = [offset for _ in range(len(graph))]
-    chrom, base = next(sequence)
-    base = aamapper(base)
-    next_states = [map(lambda x: (True, x), graph.bases[base])]
-
     try:
+        start_seq = ""
+        for _ in range(exact_start):
+            chrom, base = next(sequence)
+            start_seq += base
+            position += 1
+        next_states = [list(map(lambda x: (True, x), graph.by_suffix[exact_start][start_seq]))]
+
+        if not next_states[0]:
+            return (chrom, offset, offset+exact_start, 0, offset+exact_start)
+
+        values = [(-1, 0) for _ in range(len(graph))]
+        next_values = [(-1, 0) for _ in range(len(graph))]
+        starts = [offset for _ in range(len(graph))]
+        next_starts = [offset for _ in range(len(graph))]
+        max_value = 0
+
         while any(next_states):
             current_states, next_states = next_states, [[] for _ in range(batches)]
             values, next_values = next_values, values
             starts, next_starts = next_starts, starts
+
+            _chrom, base = next(sequence)
+            if chrom != _chrom:
+                break
+
+            base = aamapper(base)
             position = position + 1
 
             _flood = flood + max(0, max_value - MaxDrop)
+
 
             for batch in current_states:
                 for allow_insert, state in batch:
@@ -361,14 +400,6 @@ def single_search(sequence, graph, MaxDrop=200, InsertionPenalty=3, GapPenalty=3
                         state_start = position - 1
                     else:
                         state_start = starts[state_idx]
-
-                    # Insertion
-                    if allow_insert and (new_value := value - InsertionPenalty) > _flood:
-                        insertion = (position, new_value)
-                        if next_values[state_idx] < insertion:
-                            next_states[int((max_value+flood - new_value)/GapPenalty)].append((True, state))
-                            next_values[state_idx] = insertion
-                            next_starts[state_idx] = state_start
 
                     # Gaps + Correct base
                     gap_value = value - GapPenalty
@@ -393,24 +424,27 @@ def single_search(sequence, graph, MaxDrop=200, InsertionPenalty=3, GapPenalty=3
                             # Gap
                             if gapped > values[n_idx] and gap_value >= _flood:
                                 values[n_idx] = gapped
-                                current_states[int((max_value+flood - new_value)/GapPenalty)].append((False, neigh))
+                                current_states[int((max_value+flood - gap_value)/GapPenalty)].append((False, neigh))
+
+                    # Insertion
+                    if allow_insert and (new_value := value - InsertionPenalty) > _flood:
+                        insertion = (position, new_value)
+                        if next_values[state_idx] < insertion:
+                            next_states[int((max_value+flood - new_value)/GapPenalty)].append((True, state))
+                            next_values[state_idx] = insertion
+                            next_starts[state_idx] = state_start
 
             flood += BasePenalty
-            chrom, base = next(sequence)
-            base = aamapper(base)
 
         return chrom, min_position, max_position, max_value, position
 
 
     except StopIteration:
-        if flood < 0:
-            return chrom, min_position+offset, max_position+offset, 0, position+offset
-        return chrom, min_position+offset, max_position+offset, max_value, position+offset
+        return chrom, min_position, max_position, max_value, position
 
 
-@profile
-def repeats_search(fasta, graph, MinValue=200, MaxDrop=200, InsertionPenalty=3, GapPenalty=3, BasePenalty=1, fast_skip=True, skip=0):
-    print("# Starting search procedure")
+def repeats_search(fasta, graph, MinValue=200, MaxDrop=200, InsertionPenalty=3, GapPenalty=3, BasePenalty=1, fast_skip=True, skip=0, exact_start=3):
+    stderrprint("# Starting search procedure")
     position = skip
     value = 0
     last_report = 0
@@ -418,35 +452,53 @@ def repeats_search(fasta, graph, MinValue=200, MaxDrop=200, InsertionPenalty=3, 
     reader.reset(skip)
 
     while value >= 0:
-        reader.reset(position)
+        try:
+            reader.reset(position)
+        except StopIteration:
+            return
         chrom, start, end, value, p_end = \
-                single_search(reader, graph, MaxDrop, InsertionPenalty, GapPenalty, BasePenalty, offset=position)
+                single_search(reader, graph,
+                              MaxDrop=MaxDrop,
+                              InsertionPenalty=InsertionPenalty,
+                              GapPenalty=GapPenalty,
+                              BasePenalty=BasePenalty,
+                              offset=position,
+                              exact_start=exact_start)
 
-        print(f"# {chrom, start, end, value}")
+        offset = reader.get_offset(chrom)
+        _start = start - offset
+        _end = end - offset
+
         if value > MinValue:
             last_report = end
-            yield chrom, start, end, value
+            yield chrom, _start, _end, value
 
         if fast_skip:
             position = p_end
         else:
             position = end
 
-        if last_report + 10000 < position:
+        if last_report + 50000 <= position:
             last_report = position
-            print(f"# Now at base: {position}")
+            stderrprint(f"# Now at base: {position}")
 
 
+stderrprint("# Generating graph of k-meres")
 graph = generate_graph(fasta, k_len)
+stderrprint("# Scaling graph of k-meres")
 graph = scale_graph(graph, args.scaling)
+stderrprint("# Pruning graph of k-meres")
 graph = prune_graph(graph, args.abs_threshold, args.rel_threshold)
-graph = Graph(graph)
+stderrprint("# Transforming graph of k-meres")
+graph = Graph(graph, suffix=args.exact_match)
 
 
 for chrom, start, end, value in repeats_search(
         fasta, graph,
         MaxDrop=args.max_drop,
         InsertionPenalty=args.insert_pen,
-        GapPenalty=args.gap_pen, BasePenalty=args.base_pen,
-        skip=args.skip):
+        GapPenalty=args.gap_pen,
+        BasePenalty=args.base_pen,
+        skip=args.skip,
+        exact_start=args.exact_match):
     print(chrom, start, end, value)
